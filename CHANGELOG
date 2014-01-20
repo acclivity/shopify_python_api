@@ -1,6 +1,7 @@
 == Version 2.0.2
 
 * Add access to FulfillmentService endpoint
+* Add Order Risk resource
 
 == Version 2.0.1
 
