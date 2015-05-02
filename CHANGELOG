@@ -1,5 +1,13 @@
-== Version 2.0.5 unreleased
+== Version 2.1.1 (unreleased)
 
+* Added Checkout resource
+* Updated to pyactiveresource v2.1.1 which includes a test-related bugfix
+* Changed OAuth validation from MD5 to HMAC-SHA256
+
+== Version 2.1.0
+
+* Added python 3 compatibility
+* Fixed setting the format attribute on carrier and fulfillment services
 * Add a specific exception for signature validation failures
 
 == Version 2.0.4

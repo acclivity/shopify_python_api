@@ -1,7 +1,7 @@
 from setuptools import setup
 
 NAME='ShopifyAPI'
-execfile('shopify/version.py')
+exec(open('shopify/version.py').read())
 DESCRIPTION='Shopify API for Python'
 LONG_DESCRIPTION="""\
 The ShopifyAPI library allows python developers to programmatically
@@ -21,8 +21,9 @@ setup(name=NAME,
       scripts=['scripts/shopify_api.py'],
       license='MIT License',
       install_requires=[
-          'pyactiveresource>=2.0.0',
+          'pyactiveresource>=2.1.1',
           'PyYAML',
+          'six',
       ],
       test_suite='test',
       tests_require=[
@@ -34,6 +35,10 @@ setup(name=NAME,
                    'License :: OSI Approved :: MIT License',
                    'Operating System :: OS Independent',
                    'Programming Language :: Python',
+                   'Programming Language :: Python :: 2',
+                   'Programming Language :: Python :: 2.7',
+                   'Programming Language :: Python :: 3',
+                   'Programming Language :: Python :: 3.4',
                    'Topic :: Software Development',
                    'Topic :: Software Development :: Libraries',
                    'Topic :: Software Development :: Libraries :: Python Modules']

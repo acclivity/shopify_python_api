@@ -1,10 +1,11 @@
 import shopify
-from test_helper import TestCase
+from test.test_helper import TestCase
 try:
     from hashlib import md5
 except ImportError:
     from md5 import md5
 import time
+from six.moves import urllib
 
 class SessionTest(TestCase):
 
@@ -75,28 +76,28 @@ class SessionTest(TestCase):
         session = shopify.Session('http://localhost.myshopify.com')
         scope = ["write_products"]
         permission_url = session.create_permission_url(scope)
-        self.assertEqual("https://localhost.myshopify.com/admin/oauth/authorize?scope=write_products&client_id=My_test_key", permission_url)
+        self.assertEqual("https://localhost.myshopify.com/admin/oauth/authorize?client_id=My_test_key&scope=write_products", self.normalize_url(permission_url))
 
     def test_create_permission_url_returns_correct_url_with_single_scope_and_redirect_uri(self):
         shopify.Session.setup(api_key="My_test_key", secret="My test secret")
         session = shopify.Session('http://localhost.myshopify.com')
         scope = ["write_products"]
         permission_url = session.create_permission_url(scope, "my_redirect_uri.com")
-        self.assertEqual("https://localhost.myshopify.com/admin/oauth/authorize?scope=write_products&redirect_uri=my_redirect_uri.com&client_id=My_test_key", permission_url)
+        self.assertEqual("https://localhost.myshopify.com/admin/oauth/authorize?client_id=My_test_key&redirect_uri=my_redirect_uri.com&scope=write_products", self.normalize_url(permission_url))
 
     def test_create_permission_url_returns_correct_url_with_dual_scope_no_redirect_uri(self):
         shopify.Session.setup(api_key="My_test_key", secret="My test secret")
         session = shopify.Session('http://localhost.myshopify.com')
         scope = ["write_products","write_customers"]
         permission_url = session.create_permission_url(scope)
-        self.assertEqual("https://localhost.myshopify.com/admin/oauth/authorize?scope=write_products%2Cwrite_customers&client_id=My_test_key", permission_url)
+        self.assertEqual("https://localhost.myshopify.com/admin/oauth/authorize?client_id=My_test_key&scope=write_products%2Cwrite_customers", self.normalize_url(permission_url))
 
     def test_create_permission_url_returns_correct_url_with_no_scope_no_redirect_uri(self):
         shopify.Session.setup(api_key="My_test_key", secret="My test secret")
         session = shopify.Session('http://localhost.myshopify.com')
         scope = []
         permission_url = session.create_permission_url(scope)
-        self.assertEqual("https://localhost.myshopify.com/admin/oauth/authorize?scope=&client_id=My_test_key", permission_url)
+        self.assertEqual("https://localhost.myshopify.com/admin/oauth/authorize?client_id=My_test_key&scope=", self.normalize_url(permission_url))
 
     def test_raise_exception_if_code_invalid_in_request_token(self):
         shopify.Session.setup(api_key="My test key", secret="My test secret")
@@ -112,24 +113,54 @@ class SessionTest(TestCase):
         session = shopify.Session("testshop.myshopify.com", "any-token")
         self.assertEqual("https://testshop.myshopify.com/admin", session.site)
 
-    def test_return_token_if_signature_is_valid(self):
+    def test_hmac_calculation(self):
+        # Test using the secret and parameter examples given in the Shopify API documentation.
+        shopify.Session.secret='hush'
+        params = {
+          'shop': 'some-shop.myshopify.com',
+          'code': 'a94a110d86d2452eb3e2af4cfb8a3828',
+          'timestamp': '1337178173',
+          'signature': '6e39a2ea9e497af6cb806720da1f1bf3',
+          'hmac': '2cb1a277650a659f1b11e92a4a64275b128e037f2c3390e3c8fd2d8721dac9e2',
+        }
+        self.assertEqual(shopify.Session.calculate_hmac(params), params['hmac'])
+
+    def test_return_token_if_hmac_is_valid(self):
         shopify.Session.secret='secret'
         params = {'code': 'any-code', 'timestamp': time.time()}
-        sorted_params = self.make_sorted_params(params)
-        signature = md5(shopify.Session.secret + sorted_params).hexdigest()
-        params['signature'] = signature
+        hmac = shopify.Session.calculate_hmac(params)
+        params['hmac'] = hmac
 
         self.fake(None, url='https://localhost.myshopify.com/admin/oauth/access_token', method='POST', body='{"access_token" : "token"}', has_user_agent=False)
         session = shopify.Session('http://localhost.myshopify.com')
         token = session.request_token(params)
         self.assertEqual("token", token)
 
-    def test_raise_error_if_signature_does_not_match_expected(self):
+    def test_return_token_if_hmac_is_valid_but_signature_also_provided(self):
+        shopify.Session.secret='secret'
+        params = {'code': 'any-code', 'timestamp': time.time(), 'signature': '6e39a2'}
+        hmac = shopify.Session.calculate_hmac(params)
+        params['hmac'] = hmac
+
+        self.fake(None, url='https://localhost.myshopify.com/admin/oauth/access_token', method='POST', body='{"access_token" : "token"}', has_user_agent=False)
+        session = shopify.Session('http://localhost.myshopify.com')
+        token = session.request_token(params)
+        self.assertEqual("token", token)
+
+    def test_raise_error_if_hmac_is_invalid(self):
+        shopify.Session.secret='secret'
+        params = {'code': 'any-code', 'timestamp': time.time()}
+        params['hmac'] = 'a94a110d86d2452e92a4a64275b128e9273be3037f2c339eb3e2af4cfb8a3828'
+
+        with self.assertRaises(shopify.ValidationException):
+            session = shopify.Session('http://localhost.myshopify.com')
+            session = session.request_token(params)
+
+    def test_raise_error_if_hmac_does_not_match_expected(self):
         shopify.Session.secret='secret'
         params = {'foo': 'hello', 'timestamp': time.time()}
-        sorted_params = self.make_sorted_params(params)
-        signature = md5(shopify.Session.secret + sorted_params).hexdigest()
-        params['signature'] = signature
+        hmac = shopify.Session.calculate_hmac(params)
+        params['hmac'] = hmac
         params['bar'] = 'world'
         params['code'] = 'code'
 
@@ -141,18 +172,14 @@ class SessionTest(TestCase):
         shopify.Session.secret='secret'
         one_day = 24 * 60 * 60
         params = {'code': 'any-code', 'timestamp': time.time()-(2*one_day)}
-        sorted_params = self.make_sorted_params(params)
-        signature = md5(shopify.Session.secret + sorted_params).hexdigest()
-        params['signature'] = signature
+        hmac = shopify.Session.calculate_hmac(params)
+        params['hmac'] = hmac
 
         with self.assertRaises(shopify.ValidationException):
             session = shopify.Session('http://localhost.myshopify.com')
             session = session.request_token(params)
 
-
-    def make_sorted_params(self, params):
-        sorted_params = ""
-        for k in sorted(params.keys()):
-            if k != "signature":
-                sorted_params += k + "=" + str(params[k])
-        return sorted_params
+    def normalize_url(self, url):
+        scheme, netloc, path, query, fragment = urllib.parse.urlsplit(url)
+        query = "&".join(sorted(query.split("&")))
+        return urllib.parse.urlunsplit((scheme, netloc, path, query, fragment))

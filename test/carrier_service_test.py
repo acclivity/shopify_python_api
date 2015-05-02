@@ -1,5 +1,5 @@
 import shopify
-from test_helper import TestCase
+from test.test_helper import TestCase
 
 class CarrierServiceTest(TestCase):
     def test_create_new_carrier_service(self):
@@ -13,3 +13,8 @@ class CarrierServiceTest(TestCase):
 
         carrier_service = shopify.CarrierService.find(123456)
         self.assertEqual("Some Postal Service", carrier_service.name)
+
+    def test_set_format_attribute(self):
+        carrier_service = shopify.CarrierService()
+        carrier_service.format = "json"
+        self.assertEqual("json", carrier_service.attributes['format'])

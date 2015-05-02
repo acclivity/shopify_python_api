@@ -1,5 +1,5 @@
 import shopify
-from test_helper import TestCase
+from test.test_helper import TestCase
 
 class FulfillmentServiceTest(TestCase):
     def test_create_new_fulfillment_service(self):
@@ -13,3 +13,8 @@ class FulfillmentServiceTest(TestCase):
 
         fulfillment_service = shopify.FulfillmentService.find(123456)
         self.assertEqual("SomeService", fulfillment_service.name)
+
+    def test_set_format_attribute(self):
+        fulfillment_service = shopify.FulfillmentService()
+        fulfillment_service.format = "json"
+        self.assertEqual("json", fulfillment_service.attributes['format'])

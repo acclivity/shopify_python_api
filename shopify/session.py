@@ -1,16 +1,14 @@
 import time
-import urllib
-import urllib2
-try:
-    from hashlib import md5
-except ImportError:
-    from md5 import md5
+import hmac
+from hashlib import sha256
 try:
     import simplejson as json
 except ImportError:
     import json
 import re
 from contextlib import contextmanager
+from six.moves import urllib
+import six
 
 class ValidationException(Exception):
     pass
@@ -22,7 +20,7 @@ class Session(object):
 
     @classmethod
     def setup(cls, **kwargs):
-        for k, v in kwargs.iteritems():
+        for k, v in six.iteritems(kwargs):
             setattr(cls, k, v)
 
     @classmethod
@@ -46,24 +44,24 @@ class Session(object):
     def create_permission_url(self, scope, redirect_uri=None):
         query_params = dict(client_id=self.api_key, scope=",".join(scope))
         if redirect_uri: query_params['redirect_uri'] = redirect_uri
-        return "%s://%s/admin/oauth/authorize?%s" % (self.protocol, self.url, urllib.urlencode(query_params))
+        return "%s://%s/admin/oauth/authorize?%s" % (self.protocol, self.url, urllib.parse.urlencode(query_params))
 
     def request_token(self, params):
         if self.token:
             return self.token
 
         if not self.validate_params(params):
-            raise ValidationException('Invalid Signature: Possibly malicious login')
+            raise ValidationException('Invalid HMAC: Possibly malicious login')
 
         code = params['code']
 
         url = "%s://%s/admin/oauth/access_token?" % (self.protocol, self.url)
         query_params = dict(client_id=self.api_key, client_secret=self.secret, code=code)
-        request = urllib2.Request(url, urllib.urlencode(query_params))
-        response = urllib2.urlopen(request)
+        request = urllib.request.Request(url, urllib.parse.urlencode(query_params).encode('utf-8'))
+        response = urllib.request.urlopen(request)
 
         if response.code == 200:
-            self.token = json.loads(response.read())['access_token']
+            self.token = json.loads(response.read().decode('utf-8'))['access_token']
             return self.token
         else:
             raise Exception(response.msg)
@@ -94,18 +92,30 @@ class Session(object):
         if int(params['timestamp']) < time.time() - one_day:
             return False
 
-        return cls.validate_signature(params)
+        return cls.validate_hmac(params)
 
     @classmethod
-    def validate_signature(cls, params):
-        if "signature" not in params:
+    def validate_hmac(cls, params):
+        if 'hmac' not in params:
             return False
 
-        sorted_params = ""
-        signature = params['signature']
+        hmac_calculated = cls.calculate_hmac(params)
+        hmac_to_verify = params['hmac']
 
-        for k in sorted(params.keys()):
-            if k != "signature":
-                sorted_params += k + "=" + str(params[k])
+        # Try to use compare_digest() to reduce vulnerability to timing attacks.
+        # If it's not available, just fall back to regular string comparison.
+        try:
+            return hmac.compare_digest(hmac_calculated, hmac_to_verify)
+        except AttributeError:
+            return hmac_calculated == hmac_to_verify
 
-        return md5(cls.secret + sorted_params).hexdigest() == signature
+    @classmethod
+    def calculate_hmac(cls, params):
+        """
+        Calculate the HMAC of the given parameters in line with Shopify's rules for OAuth authentication.
+        See http://docs.shopify.com/api/authentication/oauth#verification.
+        """
+        # Sort and combine query parameters into a single string, excluding those that should be removed and joining with '&'.
+        sorted_params = '&'.join(['{0}={1}'.format(k, params[k]) for k in sorted(params.keys()) if k not in ['signature', 'hmac']])
+        # Generate the hex digest for the sorted parameters using the secret.
+        return hmac.new(cls.secret.encode(), sorted_params.encode(), sha256).hexdigest()
