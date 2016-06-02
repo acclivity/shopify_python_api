@@ -1,11 +1,10 @@
 import shopify
 from test.test_helper import TestCase
-try:
-    from hashlib import md5
-except ImportError:
-    from md5 import md5
+import hmac
+from hashlib import sha256
 import time
 from six.moves import urllib
+from six import u
 
 class SessionTest(TestCase):
 
@@ -20,6 +19,14 @@ class SessionTest(TestCase):
     def test_be_valid_with_any_token_and_any_url(self):
         session = shopify.Session("testshop.myshopify.com", "any-token")
         self.assertTrue(session.valid)
+
+    def test_ignore_everything_but_the_subdomain_in_the_shop(self):
+        session = shopify.Session("http://user:pass@testshop.notshopify.net/path", "any-token")
+        self.assertEqual("https://testshop.myshopify.com/admin", session.site)
+
+    def test_append_the_myshopify_domain_if_not_given(self):
+        session = shopify.Session("testshop", "any-token")
+        self.assertEqual("https://testshop.myshopify.com/admin", session.site)
 
     def test_not_raise_error_without_params(self):
         session = shopify.Session("testshop.myshopify.com", "any-token")
@@ -49,17 +56,19 @@ class SessionTest(TestCase):
         self.assertEqual('https://testshop.myshopify.com/admin', assigned_site)
         self.assertEqual('https://fakeshop.myshopify.com/admin', shopify.ShopifyResource.site)
 
-    def test_temp_reset_shopify_ShopifyResource_site_to_original_value_when_using_a_non_standard_port(self):
-        shopify.Session.setup(api_key="key", secret="secret")
-        session1 = shopify.Session('fakeshop.myshopify.com:3000', 'token1')
-        shopify.ShopifyResource.activate_session(session1)
+    def test_myshopify_domain_supports_non_standard_ports(self):
+        try:
+            shopify.Session.setup(api_key="key", secret="secret", myshopify_domain="localhost", port=3000)
 
-        assigned_site = ""
-        with shopify.Session.temp("testshop.myshopify.com", "any-token"):
-            assigned_site = shopify.ShopifyResource.site
+            session = shopify.Session('fakeshop.localhost:3000', 'token1')
+            shopify.ShopifyResource.activate_session(session)
+            self.assertEqual('https://fakeshop.localhost:3000/admin', shopify.ShopifyResource.site)
 
-        self.assertEqual('https://testshop.myshopify.com/admin', assigned_site)
-        self.assertEqual('https://fakeshop.myshopify.com:3000/admin', shopify.ShopifyResource.site)
+            session = shopify.Session('fakeshop', 'token1')
+            shopify.ShopifyResource.activate_session(session)
+            self.assertEqual('https://fakeshop.localhost:3000/admin', shopify.ShopifyResource.site)
+        finally:
+            shopify.Session.setup(myshopify_domain="myshopify.com", port=None)
 
     def test_temp_works_without_currently_active_session(self):
         shopify.ShopifyResource.clear_session()
@@ -124,6 +133,25 @@ class SessionTest(TestCase):
           'hmac': '2cb1a277650a659f1b11e92a4a64275b128e037f2c3390e3c8fd2d8721dac9e2',
         }
         self.assertEqual(shopify.Session.calculate_hmac(params), params['hmac'])
+
+    def test_hmac_calculation_with_ampersand_and_equal_sign_characters(self):
+        shopify.Session.secret='secret'
+        params = { 'a': '1&b=2', 'c=3&d': '4' }
+        to_sign = "a=1%26b=2&c%3D3%26d=4"
+        expected_hmac = hmac.new('secret'.encode(), to_sign.encode(), sha256).hexdigest()
+        self.assertEqual(shopify.Session.calculate_hmac(params), expected_hmac)
+
+    def test_hmac_validation(self):
+        # Test using the secret and parameter examples given in the Shopify API documentation.
+        shopify.Session.secret='hush'
+        params = {
+          'shop': 'some-shop.myshopify.com',
+          'code': 'a94a110d86d2452eb3e2af4cfb8a3828',
+          'timestamp': '1337178173',
+          'signature': '6e39a2ea9e497af6cb806720da1f1bf3',
+          'hmac': u('2cb1a277650a659f1b11e92a4a64275b128e037f2c3390e3c8fd2d8721dac9e2'),
+        }
+        self.assertTrue(shopify.Session.validate_hmac(params))
 
     def test_return_token_if_hmac_is_valid(self):
         shopify.Session.secret='secret'

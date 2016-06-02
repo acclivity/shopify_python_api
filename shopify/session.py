@@ -17,6 +17,8 @@ class Session(object):
     api_key = None
     secret = None
     protocol = 'https'
+    myshopify_domain = 'myshopify.com'
+    port = None
 
     @classmethod
     def setup(cls, **kwargs):
@@ -27,9 +29,9 @@ class Session(object):
     @contextmanager
     def temp(cls, domain, token):
         import shopify
-        original_domain = shopify.ShopifyResource.get_site()
+        original_site = shopify.ShopifyResource.get_site()
         original_token = shopify.ShopifyResource.get_headers().get('X-Shopify-Access-Token')
-        original_session = shopify.Session(original_domain, original_token)
+        original_session = shopify.Session(original_site, original_token)
 
         session = Session(domain, token)
         shopify.ShopifyResource.activate_session(session)
@@ -44,7 +46,7 @@ class Session(object):
     def create_permission_url(self, scope, redirect_uri=None):
         query_params = dict(client_id=self.api_key, scope=",".join(scope))
         if redirect_uri: query_params['redirect_uri'] = redirect_uri
-        return "%s://%s/admin/oauth/authorize?%s" % (self.protocol, self.url, urllib.parse.urlencode(query_params))
+        return "%s/oauth/authorize?%s" % (self.site, urllib.parse.urlencode(query_params))
 
     def request_token(self, params):
         if self.token:
@@ -55,7 +57,7 @@ class Session(object):
 
         code = params['code']
 
-        url = "%s://%s/admin/oauth/access_token?" % (self.protocol, self.url)
+        url = "%s/oauth/access_token?" % self.site
         query_params = dict(client_id=self.api_key, client_secret=self.secret, code=code)
         request = urllib.request.Request(url, urllib.parse.urlencode(query_params).encode('utf-8'))
         response = urllib.request.urlopen(request)
@@ -74,15 +76,23 @@ class Session(object):
     def valid(self):
         return self.url is not None and self.token is not None
 
-    @staticmethod
-    def __prepare_url(url):
+    @classmethod
+    def __prepare_url(cls, url):
         if not url or (url.strip() == ""):
             return None
-        url = re.sub("https?://", "", url)
-        url = re.sub("/.*", "", url)
-        if url.find(".") == -1:
-            url += ".myshopify.com"
-        return url
+        url = re.sub("^https?://", "", url)
+        shop = urllib.parse.urlparse("https://" + url).hostname
+        if shop is None:
+            return None
+        idx = shop.find(".")
+        if idx != -1:
+            shop = shop[0:idx]
+        if len(shop) == 0:
+            return None
+        shop += "." + cls.myshopify_domain
+        if cls.port:
+            shop += ":" + str(cls.port)
+        return shop
 
     @classmethod
     def validate_params(cls, params):
@@ -99,8 +109,8 @@ class Session(object):
         if 'hmac' not in params:
             return False
 
-        hmac_calculated = cls.calculate_hmac(params)
-        hmac_to_verify = params['hmac']
+        hmac_calculated = cls.calculate_hmac(params).encode('utf-8')
+        hmac_to_verify = params['hmac'].encode('utf-8')
 
         # Try to use compare_digest() to reduce vulnerability to timing attacks.
         # If it's not available, just fall back to regular string comparison.
@@ -115,7 +125,21 @@ class Session(object):
         Calculate the HMAC of the given parameters in line with Shopify's rules for OAuth authentication.
         See http://docs.shopify.com/api/authentication/oauth#verification.
         """
-        # Sort and combine query parameters into a single string, excluding those that should be removed and joining with '&'.
-        sorted_params = '&'.join(['{0}={1}'.format(k, params[k]) for k in sorted(params.keys()) if k not in ['signature', 'hmac']])
+        encoded_params = cls.__encoded_params_for_signature(params)
         # Generate the hex digest for the sorted parameters using the secret.
-        return hmac.new(cls.secret.encode(), sorted_params.encode(), sha256).hexdigest()
+        return hmac.new(cls.secret.encode(), encoded_params.encode(), sha256).hexdigest()
+
+    @classmethod
+    def __encoded_params_for_signature(cls, params):
+        """
+        Sort and combine query parameters into a single string, excluding those that should be removed and joining with '&'
+        """
+        def encoded_pairs(params):
+            for k, v in six.iteritems(params):
+                if k not in ['signature', 'hmac']:
+                    # escape delimiters to avoid tampering
+                    k = str(k).replace("%", "%25").replace("=", "%3D")
+                    v = str(v).replace("%", "%25")
+                    yield '{0}={1}'.format(k, v).replace("&", "%26")
+
+        return "&".join(sorted(encoded_pairs(params)))

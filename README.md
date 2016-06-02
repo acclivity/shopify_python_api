@@ -1,5 +1,5 @@
 [![Build Status](https://travis-ci.org/Shopify/shopify_python_api.svg?branch=master)](https://travis-ci.org/Shopify/shopify_python_api)
-[![Package Version](https://pypip.in/version/ShopifyAPI/badge.svg)](https://pypi.python.org/pypi/ShopifyAPI)
+[![PyPI version](https://badge.fury.io/py/shopifyapi.svg)](https://badge.fury.io/py/shopifyapi)
 
 # Shopify API
 
@@ -80,11 +80,10 @@ these steps:
 
     with the following parameters:
 
-    ```
-    * client_id – Required – The API key for your app
-    * scope – Required – The list of required scopes (explained here: http://docs.shopify.com/api/tutorials/oauth)
-    * redirect_uri – Optional – The URL that the merchant will be sent to once authentication is complete. Defaults to the URL specified in the application settings and must be the same host as that URL.
-    ```
+   * ``client_id``– Required – The API key for your app
+   * ``scope`` – Required – The list of required scopes (explained here: http://docs.shopify.com/api/tutorials/oauth)
+   * ``redirect_uri`` – Required – The URL where you want to redirect the users after they authorize the client. The complete URL specified here must be identical to one of the Application Redirect URLs set in the App's section of the Partners dashboard. Note: in older applications, this parameter was optional, and redirected to the Application Callback URL when no other value was specified.
+   * ``state`` – Optional – A randomly selected value provided by your application, which is unique for each authorization request. During the OAuth callback phase, your application must check that this value matches the one you provided during authorization. [This mechanism is important for the security of your application](https://tools.ietf.org/html/rfc6819#section-3.6).
 
     We've added the create_permision_url method to make this easier, first
     instantiate your session object:
@@ -106,11 +105,19 @@ these steps:
     permission_url = session.create_permission_url(scope, "https://my_redirect_uri.com")
     ```
 
-4.  Once authorized, the shop redirects the owner to the return URL of your
-    application with a parameter named 'code'. This is a temporary token
-    that the app can exchange for a permanent access token. Make the following call:
+4. Once authorized, the shop redirects the owner to the return URL of your application with a parameter named 'code'. This is a temporary token that the app can exchange for a permanent access token.
 
-    `POST https://SHOP_NAME.myshopify.com/admin/oauth/access_token`
+   Before you proceed, make sure your application performs the following security checks. If any of the checks fails, your application must reject the request with an error, and must not proceed further.
+
+   * Ensure the provided ``state`` is the same one that your application provided to Shopify during Step 3.
+   * Ensure the provided hmac is valid. The hmac is signed by Shopify as explained below, in the Verification section.
+   * Ensure the provided hostname parameter is a valid hostname, ends with myshopify.com, and does not contain characters other than letters (a-z), numbers (0-9), dots, and hyphens.
+
+   If all security checks pass, the authorization code can be exchanged once for a permanent access token. The exchange is made with a request to the shop.
+
+   ```
+   POST https://SHOP_NAME.myshopify.com/admin/oauth/access_token
+   ```
 
     with the following parameters:
 
@@ -146,9 +153,10 @@ these steps:
     ```
 
 6.  Now you're ready to make authorized API requests to your shop!
-    Data is returned as ActiveResource instances:
+    Data is returned as [ActiveResource](https://github.com/Shopify/pyactiveresource) instances:
 
     ```python
+    # Get the current shop
     shop = shopify.Shop.current()
 
     # Get a specific product
@@ -167,6 +175,9 @@ these steps:
     # Update a product
     product.handle = "burton-snowboard"
     product.save()
+
+    # Remove a product
+    product.destroy()
     ```
 
     Alternatively, you can use temp to initialize a Session and execute a command which also handles temporarily setting ActiveResource::Base.site:
@@ -241,6 +252,24 @@ To run tests, simply open up the project directory in a terminal and run:
 
 ```shell
 python setup.py test
+```
+
+Alternatively, use [tox](http://tox.readthedocs.org/en/latest/) to
+sequentially test against different versions of Python in isolated
+environments:
+
+```shell
+pip install tox
+tox
+```
+
+See the tox documentation for help on running only specific environments
+at a time. The related tool [detox](https://pypi.python.org/pypi/detox)
+can be used to run tests in these environments in parallel:
+
+```shell
+pip install detox
+detox
 ```
 
 ## Limitations

@@ -19,6 +19,7 @@ from .script_tag import ScriptTag
 from .product_search_engine import ProductSearchEngine
 from .application_charge import ApplicationCharge
 from .recurring_application_charge import RecurringApplicationCharge
+from .usage_charge import UsageCharge
 from .asset import Asset
 from .theme import Theme
 from .customer_saved_search import CustomerSavedSearch
@@ -44,5 +45,9 @@ from .order import Order
 from .order_risk import OrderRisk
 from .policy import Policy
 from .smart_collection import SmartCollection
+from .gift_card import GiftCard
+from .discount import Discount
+from .shipping_zone import ShippingZone
+from .location import Location
 
 from ..base import ShopifyResource
